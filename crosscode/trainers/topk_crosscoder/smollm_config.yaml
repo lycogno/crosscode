@@ -1,0 +1,69 @@
+# TopK Crosscoder for Fine-tuned SmolLM 360M
+# This configuration trains a topk crosscoder on a fine-tuned SmolLM-360M model
+
+seed: 42
+cache_dir: ".cache"
+base_save_dir: ".checkpoints"
+experiment_name: "topk_crosscoder_finetuned_smollm_360m"
+
+# Weights & Biases logging
+wandb:
+  entity: "dummy"  # Not used when mode is disabled
+  project: "dummy"  # Not used when mode is disabled
+  mode: "disabled"  # "online", "offline", or "disabled"
+
+# Data configuration
+data:
+  token_sequence_loader:
+    hf_dataset_name: "monology/pile-uncopyrighted"
+    sequence_length: 2048
+    sequences_shuffle_buffer_size: 10000
+  
+  activations_harvester:
+    llms:
+      - hf_model_name: "/home/vishnu20220094/nlp/Language-Model-STS-CFT/train/output/20251207204033/checkpoint-1000"
+        base_archicteture_name: "HuggingFaceTB/SmolLM-360M"  # Base architecture for tokenizer
+        revision: null
+    inference_dtype: "bfloat16"
+    harvesting_batch_size: 8
+    cache_mode: "no_cache"
+  
+  n_tokens_for_norm_estimate: 100000
+  activations_shuffle_buffer_size: 10000
+
+# Which layer(s) to train crosscoder on
+# For SmolLM 360M (32 layers), using middle layer
+hookpoints:
+  - "blocks.16.hook_resid_post"
+
+# Crosscoder architecture configuration
+crosscoder:
+  n_latents: 16384  # Expansion factor of ~17x (960 * 17 ≈ 16384)
+  k: 64  # Number of top-k active latents
+  use_encoder_bias: true
+  use_decoder_bias: true
+  dec_init_norm: 0.1
+
+# Training configuration
+train:
+  topk_style: "topk"  # Options: "topk", "batch_topk", "groupmax"
+  batch_size: 4096
+  gradient_accumulation_steps_per_batch: 8  # minibatch_size = batch_size / gradient_accumulation_steps_per_batch = 512
+  num_steps: 10000
+  
+  # Optimizer configuration
+  optimizer:
+    type: "adam"
+    learning_rate: 5e-5
+    warmup_pct: 0.05
+    warmdown_pct: 0.2
+    betas: [0.0, 0.999]
+  
+  # TopK-specific parameters
+  lambda_aux: 0.03125  # 1/32 as per the paper
+  k_aux: null  # Will default to d_model // 2 = 960 // 2 = 480
+  dead_latents_threshold_n_examples: 1000000
+  
+  # Logging and checkpointing
+  log_every_n_steps: 10
+  save_every_n_steps: 1000
